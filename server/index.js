@@ -343,6 +343,32 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Flush endpoint: clears service worker and caches from the browser, then redirects to /
+// Accessible from mobile without DevTools: just visit /flush
+app.get('/flush', (req, res) => {
+    res.send(`<!DOCTYPE html><html><head><title>Flushing...</title></head><body>
+<script>
+(async () => {
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const r of regs) await r.unregister();
+    const keys = await caches.keys();
+    for (const k of keys) await caches.delete(k);
+    // Preserve auth token and REPL mode preference, clear everything else
+    const authToken = localStorage.getItem('auth-token');
+    const replMode = localStorage.getItem('claude-full-repl-mode');
+    localStorage.clear();
+    if (authToken) localStorage.setItem('auth-token', authToken);
+    if (replMode) localStorage.setItem('claude-full-repl-mode', replMode);
+    sessionStorage.clear();
+  } catch(e) {}
+  window.location.href = '/';
+})();
+</script>
+<noscript><a href="/">Click here</a></noscript>
+</body></html>`);
+});
+
 // Public health check endpoint (no authentication required)
 app.get('/health', (req, res) => {
     res.json({

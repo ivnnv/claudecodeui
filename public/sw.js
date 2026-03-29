@@ -1,55 +1,50 @@
 // Service Worker for Claude Code UI PWA
-const CACHE_NAME = 'claude-ui-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json'
-];
+// Network-first strategy: always fetch fresh, only use cache for offline fallback.
+// This prevents stale cached assets from breaking the app after rebuilds.
 
-// Install event
+const CACHE_NAME = 'claude-ui-v2';
+
+// Install event - skip waiting to activate immediately
 self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        return cache.addAll(urlsToCache);
-      })
-  );
   self.skipWaiting();
 });
 
-// Fetch event
+// Activate event - clear all old caches
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => caches.delete(cacheName))
+      );
+    })
+  );
+  self.clients.claim();
+});
+
+// Fetch event - network first, cache fallback
 self.addEventListener('fetch', event => {
-  // Never cache API requests or WebSocket upgrades
+  // Skip API and WebSocket requests entirely
   if (event.request.url.includes('/api/') || event.request.url.includes('/ws')) {
     return;
   }
 
   event.respondWith(
-    caches.match(event.request)
+    fetch(event.request)
       .then(response => {
-        if (response) {
-          return response;
+        // Cache successful responses for offline use
+        if (response.ok) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(event.request, responseClone);
+          });
         }
-        return fetch(event.request);
-      }
-    )
+        return response;
+      })
+      .catch(() => {
+        // Network failed, try cache
+        return caches.match(event.request);
+      })
   );
-});
-
-// Activate event
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
-  self.clients.claim();
 });
 
 // Push notification event
